@@ -1,0 +1,26 @@
+---
+- name: Transferring files
+  hosts: ginodb1
+  gather_facts: no
+
+  tasks:
+    - name: 1. Deleting the old file named 'oracleUpgrade.sh' on the remote host.
+      file:
+        state: absent
+        path: /opt/gvppdb/oracleUpgrade.sh
+      become: yes
+
+    - name: 2. Uploading the new file named 'oracleUpgrade.sh' to the remote host.
+      copy:
+        src: /ansible/data/oracleUpgrade.sh
+        dest: /opt/gvppdb/
+        owner: root
+        group: root
+        mode: 0755
+      become: yes
+
+    - name: 3. Verify the new file named 'oracleUpgrade.sh' is uploaded.
+      shell: "ls -l /ansible/data/oracleUpgrade.sh"
+      register: file_Verification
+      become: yes
+    - debug: var=file_Verification.stdout_lines

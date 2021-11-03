@@ -1,0 +1,13 @@
+# inventory
+
+#Labs
+[DB]
+ginodb1 ansible_host=172.17.0.1 
+
+#Vars
+[DB:vars]
+ansible_port=10101
+ansible_user=secadm
+ansible_ssh_pass=Security123!
+ansible_become_pass=Security123!
+
