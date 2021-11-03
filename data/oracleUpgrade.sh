@@ -6,14 +6,44 @@ readonly ora_Group=dba
 readonly ora_Home=/oracle12c/OraHome19c 
 readonly ora_Upgrade=/oracle12c/upgrade
 readonly ora_Setup=/oracle12c/setup
+readonly ora_Logs=/oracle12c/dbpatch/logs
 readonly runUser="/sbin/runuser -l ${ora_User} -c"
 readonly kill_Proc="/bin/kill -9"
 
 # Functions
+#Appendix 0. Record logs
+_logRecord()
+{
+    # Variables 
+    local upgrade_Logs=${ora_Logs}/oracle19c_upgrade.log
+    local msg=$1 
+
+    # Check if log file exists
+    if [ ! -d ${ora_Logs} ]; then 
+        mkdir -p ${ora_Logs}
+    fi 
+
+    if [ ! -f ${upgrade_Logs} ]; then 
+        touch ${upgrade_Logs}
+        > ${upgrade_Logs}
+    fi
+
+    echo "${msg}" >> ${upgrade_Logs}
+}
+
+
 #Appendix 1. Start up database (as oracle user)
 _startupDB()
 {
-    echo -e "Appendix 1: Start up database !"
+    # Variables 
+    declare -a MESSAGE=(
+        '--Appendix 1: Start up database--'
+        'FAILED: cannot start the database !'
+        'PASS: startup the database successfully !'
+        'INFO: database is already started !'
+        )
+
+    echo "${MESSAGE[0]}"
 
     # 0: startup state
     # 1: shutdown state
@@ -47,12 +77,12 @@ EOF' >/dev/null 2>&1
         fi 
         proc=$(ps -ef | grep ora_pmon | grep -vi grep | awk '{ print $2 }')
         if [ "$proc" == "" ]; then
-            echo -e "Failed to start the database !";
-            _cleanUp
+            _logRecord ${MESSAGE[1]}
+            _cleanUp "1"
         fi
-        echo -e "Database has been started up successfully !";
+        echo "${MESSAGE[2]}"
     else
-        echo -e "Database is already started !";
+        echo "${MESSAGE[3]}"
     fi
 
   echo
@@ -61,7 +91,15 @@ EOF' >/dev/null 2>&1
 #Appendix 2. Start up listener (as oracle user)
 _startupListener()
 {
-    echo -e "Appendix 2: Start up listener !"
+    # Variables 
+    declare -a MESSAGE=(
+        '--Appendix 2: Start up listener--'
+        'FAILED: cannot start the listener !'
+        'PASS: startup the listener successfully !'
+        'INFO: listener is already started !'
+        )
+
+    echo "${MESSAGE[0]}"
 
     # 0: startup state
     # 1: shutdown state
@@ -81,13 +119,13 @@ _startupListener()
         $runUser "lsnrctl start" >/dev/null 2>&1
         $runUser "lsnrctl status" >/dev/null 2>&1
         if [ $? -ne 0 ]; then
-            echo -e "Failed to start the listener !";
-            _cleanUp
+            echo "${MESSAGE[1]}"
+            _cleanUp "1"
         fi
 
-        echo -e "Listener has been started up successfully !";
+        echo "${MESSAGE[2]}"
     else 
-        echo -e "Listener is already started up !";
+        echo "${MESSAGE[3]}"
     fi
 
   chown -R ${ora_User}:${ora_Group} /oracle12c
@@ -98,7 +136,15 @@ _startupListener()
 #Appendix 3. Shut down database (as oracle user)
 _shutdownDB()
 {
-    echo -e "Appendix 3: Shut down database !"
+    # Variables 
+    declare -a MESSAGE=(
+        "Appendix 3: Shut down database !" 
+        "FAILED: cannot shut down the database !"
+        "PASS: shut down the database successfully !"
+        "INFO: database is already shut down !"
+        )
+
+    _logRecord "${MESSAGE[1]}"
 
     # 0: startup state
     # 1: shutdown state
@@ -121,13 +167,13 @@ EOF
         if [ "$proc" != "" ]; then
             $kill_Proc $proc
             if [ $? -ne 0 ]; then
-                _cleanUp
+                _logRecord "${MESSAGE[2]}"
+                _cleanUp "2"
             fi
         fi
-
-        echo -e "Database has been shutdown successfully !";
+        _logRecord "${MESSAGE[3]}"
     else
-        echo -e "Database is already shutdown !";
+        _logRecord "${MESSAGE[4]}"
     fi
 
   chown -R ${ora_User}:${ora_Group} /oracle12c
@@ -138,7 +184,15 @@ EOF
 #Appendix 4. Shut down listener (as oracle user)
 _shutdownListener()
 {
-    echo -e "Appendix 4: Shut down listener !"
+    # Variables 
+    declare -a MESSAGE=(
+        "Appendix 4: Shut down listener !" 
+        "FAILED: cannot shut down the listener !"
+        "PASS: shut down the listener successfully !"
+        "INFO: listener is already shut down !"
+        )
+
+    _logRecord "${MESSAGE[1]}"
 
     # 0: startup state
     # 1: shutdown state
@@ -155,13 +209,13 @@ _shutdownListener()
         $runUser "lsnrctl stop" >/dev/null 2>&1
         $runUser "lsnrctl status" >/dev/null 2>&1
         if [ $? -eq 0 ]; then
-            _cleanUp
+            _logRecord "${MESSAGE[2]}"
+            _cleanUp "2"
         fi
 
-        echo -e "Listener has been shutdown successfully !";
-
+        _logRecord "${MESSAGE[3]}"
     else 
-        echo -e "Listener is already shutdown successfully !";
+        _logRecord "${MESSAGE[4]}"
     fi
 
   chown -R ${ora_User}:${ora_Group} /oracle12c
@@ -175,12 +229,12 @@ prerequisiteCheck()
     # Variables 
     declare -a MESSAGE=(
         "--Step 1: Start checking the environment--" 
-        "FAILED: cannot clearing P&P database logs !"
-        "PASS: cleared P&P database logs"
-        "FAILED: cannot clearing P&P database dump files !"
-        "PASS: cleared P&P database dump files !"
-        "FAILED: cannot clearing P&P database dump text files !"
-        "PASS: cleared P&P database dump text files !"
+        "FAILED: cannot clear P&P database logs !"
+        "PASS: clear P&P database logs successfully !"
+        "FAILED: cannot clear P&P database dump files !"
+        "PASS: clear P&P database dump files successfully !"
+        "FAILED: cannot clear P&P database dump text files !"
+        "PASS: clear P&P database dump text files successfully !"
         "FAILED: There is no space left for oracle database 19c upgrade" 
         "FAILED: The available space is $spaceAvailable"
         "PASS: The available space is $spaceAvailable"
@@ -188,55 +242,55 @@ prerequisiteCheck()
         "INFO: $ora_Home directory existed !"
         )
 
-    local gvpp_dmp_dir=/oracle12c/admin/ORCL/dpdump/
-    local gvpp_log_dir=/oracle12c/admin/ORCL/adump/
-    local _spaceCheck=$(df -h | grep oracle12c | awk '{print $4}' | tr -d '[:alpha:]')
-    local spaceAvailable=$(expr $_spaceCheck + 0)
+    local gvppDmpDir=/oracle12c/admin/ORCL/dpdump/gvpp_dump_dir
+    local gvppLogDir=/oracle12c/admin/ORCL/adump
+    local spaceCheck=$(df -h | grep oracle12c | awk '{print $4}' | tr -d '[:alpha:]')
+    local spaceAvailable=$(expr $spaceCheck + 0)
 
     #1. introduce
-    echo -e "${MESSAGE[1]}"   
+    echo -e "${MESSAGE[0]}"   
 
-    #2. delete all logs from gvpp_log_dir directory.
-    rm -f $gvpp_log_dir/* >/dev/null 
+    #2. delete all logs from $gvppLogDir directory.
+    rm -f ${gvppLogDir}/* >/dev/null 
     if [ $? -ne 0 ]; then 
-        echo -e "${MESSAGE[2]}" 
+        echo -e "${MESSAGE[1]}" 
     else 
-        echo -e "${MESSAGE[3]}" 
+        echo -e "${MESSAGE[2]}" 
     fi
 
     #3. delete all dmp files, only keep 3 files 
-    counts=$(ls -l $gvpp_dmp_dir/*.dmp | wc -l)
-    ls -tp $gvpp_dmp_dir/*.dmp | grep -v '/$' | tail -n $(expr $counts - 3) | xargs -I {} rm -- {}
+    local _counts=$(ls -l ${gvppDmpDir} | grep '.dmp' | wc -l)
+    local _listDmpFile=$(ls -tp ${gvppDmpDir} | grep '.dmp' | grep -v '/$' | tail -n $(expr \$_counts - 3))
     if [ $? -ne 0 ]; then 
-        echo -e "${MESSAGE[4]}" 
+        echo -e "${MESSAGE[3]}" 
     else 
-        echo -e "${MESSAGE[5]}" 
+        echo -e "${MESSAGE[4]}" 
     fi
 
     #4. delete all txt files, only keep 3 files 
-    counts=$(ls -l $gvpp_dmp_dir/*.txt | wc -l)
-    ls -tp $gvpp_dmp_dir/*.dmp | grep -v '/$' | tail -n $(expr $counts - 3) | xargs -I {} rm -- {}
+    local _counts=$(ls -l ${gvppDmpDir} | grep '.txt' | wc -l)
+    ls -tp ${gvppDmpDir} | grep '.txt'  | grep -v '/$' | tail -n $(expr $_counts - 3) | xargs -I {} rm -- {}
     if [ $? -ne 0 ]; then 
-        echo -e "${MESSAGE[6]}" 
+        echo -e "${MESSAGE[5]}" 
     else 
-        echo -e "${MESSAGE[7]}" 
+        echo -e "${MESSAGE[6]}" 
     fi
 
     #5. check available space
     if [ $spaceAvailable -lt 30 ]; then 
+        echo -e "${MESSAGE[7]}"  
         echo -e "${MESSAGE[8]}"  
-        echo -e "${MESSAGE[9]}"  
         exit 4
     else 
-        echo -e "${MESSAGE[10]}"  
+        echo -e "${MESSAGE[9]}"  
     fi
 
     # Check #2
     if [ ! -d $ora_Home ]; then 
-        echo -e "${MESSAGE[11]}"  
+        echo -e "${MESSAGE[10]}"  
         mkdir -p $ora_Home
     else 
-        echo -e "${MESSAGE[12]}"  
+        echo -e "${MESSAGE[11]}"  
     fi
 
     echo 
@@ -705,71 +759,91 @@ EOF'
 
 _cleanUp()
 {
-    echo -e "Appendix 5: Error occured, cleaning up..."
-    echo -e "Only phase 1,2,3 are covered by the cleanup function"
-    echo -e "For other phase, you should delete the DB and re-create it"
-    echo -e "then perform the data restore and contact support."
+    # Variables 
+    declare -a MESSAGE=(
+        "--Appendix 5: Error occured, perform cleanup--"
+        "INFO: only phases 1,2,3 are covered by the cleanup function. For other phase, you should delete the DB and re-create it then perform the data restore and contact support."
+        "FAILED: cannot start the database and listener correctly, please check that !"
+        )
+    local rollback=$1
+
+    _logRecord "${MESSAGE[1]}"
+    _logRecord "${MESSAGE[2]}"
+
+    case $rollback in 
+        "1")
+            _logRecord "${MESSAGE[3]}"
+            ;;
+        "2")
+            ;;
+        "3")
+            ;;
+        *)
+            ;;
+    esac
+
+    exit 4;
 
     #Step 1: Shut down listener and database as oracle 19c .profile
-    switchProfile 1
-    _shutdownDB
-    _shutdownListener
+    #switchProfile 1
+    #_shutdownDB
+    #_shutdownListener
 
     #Step 2: Revert oracle home from /etc/oratab
-    sed -i 's/OraHome19c/OraHome1/g' /etc/oratab
+    #sed -i 's/OraHome19c/OraHome1/g' /etc/oratab
 
     #Step 3: Removing package 
-    local pkgPath=/oracle12c/upgrade/rpm
-    local pkgLog=/oracle12c/upgrade/rpm/.rpm_remove.log
-    : > $pkgLog
-    declare -a pkgItem=(
-        "smartmontools" 
-        "libXmu" 
-        "xorg-x11-xauth"
-        "libXxf86misc"
-        "libdmx"
-        "libXxf86dga"
-        "libXv"
-        "xorg-x11-utils"
-        "oracle-database-preinstall-19c"
-        )
+    #local pkgPath=/oracle12c/upgrade/rpm
+    #local pkgLog=/oracle12c/upgrade/rpm/.rpm_remove.log
+    #: > $pkgLog
+    #declare -a pkgItem=(
+    #    "smartmontools" 
+    #    "libXmu" 
+    #    "xorg-x11-xauth"
+    #    "libXxf86misc"
+    #    "libdmx"
+    #    "libXxf86dga"
+    #    "libXv"
+    #    "xorg-x11-utils"
+    #    "oracle-database-preinstall-19c"
+    #    )
 
-    for i in "${pkgItem[@]}"
-    do
-        local pkgCheck=$(yum list installed | grep ${i})
-        if [ "$pkgCheck" != "" ]; then 
-            yum -y remove ${pkgPath}/${i} >> $pkgLog
-            if [ $? -eq 0 ]; then 
-                echo -e "Package ${i} was removed successfully!";
-            else 
-                echo -e "Failed removing package ${i}.rpm, see ${pkgLog} for more detail";
-            fi
-            echo >> ${pkgLog}
-        else
-            echo -e "Package ${i} is not yet installed !";
-        fi
-    done    
+    #for i in "${pkgItem[@]}"
+    #do
+    #    local pkgCheck=$(yum list installed | grep ${i})
+    #    if [ "$pkgCheck" != "" ]; then 
+    #        yum -y remove ${pkgPath}/${i} >> $pkgLog
+    #        if [ $? -eq 0 ]; then 
+    #            echo -e "Package ${i} was removed successfully!";
+    #        else 
+    #            echo -e "Failed removing package ${i}.rpm, see ${pkgLog} for more detail";
+    #        fi
+    #        echo >> ${pkgLog}
+    #    else
+    #        echo -e "Package ${i} is not yet installed !";
+    #    fi
+    #done    
 
-    rm -rf ${ora_Home}
+    #rm -rf ${ora_Home}
 
     #Step 4: Start up the listener and database as oracle 12c .profile
-    switchProfile 2
-    _startupListener
-    _startupDB 0
+    #switchProfile 2
+    #_startupListener
+    #_startupDB 0
 
-    echo 
+    #echo 
 
-    exit 4
+    #exit 4
 
 }
 
 
 #Main. As root user, run the below functions
 
-echo 
+_logRecord "\n"
 #phase 1: make sure the database is already started up before the oracle19c upgrade.
-_startupListener
 _startupDB 0
+_startupListener
 prerequisiteCheck
 
 #Phase 2: oracle 19c installation
