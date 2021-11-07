@@ -1,21 +1,32 @@
 #!/bin/bash
 
-# Variables
+# Common variables
 readonly ora_User=oracle
 readonly ora_Group=dba
 readonly ora_Home=/oracle12c/OraHome19c 
 readonly ora_Upgrade=/oracle12c/upgrade
-readonly ora_Setup=/oracle12c/setup
-readonly ora_Logs=/oracle12c/dbpatch/logs
+readonly ora_Setup=/oracle12c/upgrade/setup
+readonly ora_Bk=/oracle12c/dbpatch/backup
 readonly runUser="/sbin/runuser -l ${ora_User} -c"
 readonly kill_Proc="/bin/kill -9"
+
+# Log variables
+readonly ora_Logs=/oracle12c/dbpatch/logs
+readonly upgrade_Logs=${ora_Logs}/oracle19c_upgrade.log
+readonly _pkgRpm=/oracle12c/upgrade/rpm
+readonly _pkgRpmLog=/oracle12c/upgrade/rpm/.rpm_install.log
+readonly _pkgRpmLogRemoval=/oracle12c/upgrade/rpm/.rpm_removal.log
+readonly _pkgDec=/oracle12c/upgrade/setup
+readonly _pkgDecLog=/oracle12c/upgrade/setup/.setup_install.log
+
+# Changable variables
+taskRecord=0
 
 # Functions
 #Appendix 0. Record logs
 _logRecord()
 {
     # Variables 
-    local upgrade_Logs=${ora_Logs}/oracle19c_upgrade.log
     local msg=$1 
 
     # Check if log file exists
@@ -64,8 +75,10 @@ _startupDB()
     chown -R ${ora_User}:${ora_Group} /oracle12c
 
     # Verification
-    if [ $rc_DB -eq 1 ]; then
-        if [ $is_Upg -eq 0 ]; then 
+    if [ $rc_DB -eq 1 ]; 
+    then
+        if [ $is_Upg -eq 0 ]; 
+        then 
             $runUser 'sqlplus / as sysdba <<EOF
 startup
 exit;
@@ -77,9 +90,10 @@ exit;
 EOF' >/dev/null 2>&1
         fi 
         proc=$(ps -ef | grep ora_pmon | grep -vi grep | awk '{ print $2 }')
-        if [ "$proc" == "" ]; then
+        if [ "$proc" == "" ]; 
+        then
             _logRecord ${MESSAGE[1]}
-            _cleanUp "1"
+            _cleanUp "10"
         fi
         _logRecord "${MESSAGE[2]}"
     else
@@ -179,7 +193,7 @@ EOF
 
   chown -R ${ora_User}:${ora_Group} /oracle12c
 
-  echo
+  _logRecord " "
 }
 
 #Appendix 4. Shut down listener (as oracle user)
@@ -224,10 +238,17 @@ _shutdownListener()
   echo
 }
 
-#1. Check requirement (as root user)
+#Task 1. Check requirement (as root user)
 prerequisiteCheck()
 {
+    taskRecord="1"
+
     # Variables 
+    local gvppDmpDir=/oracle12c/admin/ORCL/dpdump/gvpp_dump_dir
+    local gvppLogDir=/oracle12c/admin/ORCL/adump
+    local spaceCheck=$(df -h /oracle12c | tail -n 1 | awk '{print $4}' | tr -d '[:alpha:]')
+    local spaceAvailable=$(expr $spaceCheck + 0)
+
     declare -a MESSAGE=(
         "--Step 1: Start checking the environment--" 
         "FAILED: cannot clear P&P database logs !"
@@ -236,22 +257,17 @@ prerequisiteCheck()
         "PASS: clear P&P database dump files successfully !"
         "FAILED: cannot clear P&P database dump text files !"
         "PASS: clear P&P database dump text files successfully !"
-        "FAILED: There is no space left for oracle database 19c upgrade" 
-        "FAILED: The available space is $spaceAvailable"
-        "PASS: The available space is $spaceAvailable"
+        "FAILED: There is no space left for oracle database 19c upgrade !" 
+        "FAILED: The available space is $spaceAvailable !"
+        "PASS: The available space is $spaceAvailable !"
         "INFO: Creating $ora_Home directory..."
         "INFO: $ora_Home directory existed !"
         )
 
-    local gvppDmpDir=/oracle12c/admin/ORCL/dpdump/gvpp_dump_dir
-    local gvppLogDir=/oracle12c/admin/ORCL/adump
-    local spaceCheck=$(df -h | grep oracle12c | awk '{print $4}' | tr -d '[:alpha:]')
-    local spaceAvailable=$(expr $spaceCheck + 0)
-
     #1. introduce
-    _logRecord "${MESSAGE[0]}"   
+    _logRecord "${MESSAGE[0]}" 
 
-    #2. delete all logs from $gvppLogDir directory.
+    #2. delete all logs & dmp and text files
     rm -f ${gvppLogDir}/* >/dev/null 
     if [ $? -ne 0 ]; then 
         _logRecord "${MESSAGE[1]}" 
@@ -259,34 +275,47 @@ prerequisiteCheck()
         _logRecord "${MESSAGE[2]}" 
     fi
 
-    #3. delete all dmp files, only keep 3 files 
-    local _counts=$(ls -l ${gvppDmpDir} | grep '.dmp' | wc -l)
-    local _listDmpFile=$(ls -tp ${gvppDmpDir} | grep '.dmp' | grep -v '/$' | tail -n $(expr \$_counts - 3))
-    if [ $? -ne 0 ]; then 
-        _logRecord "${MESSAGE[3]}" 
-    else 
-        _logRecord "${MESSAGE[4]}" 
+    local _workingDir=$(pwd)
+    
+    cd ${gvppDmpDir}
+    local _counts=$(ls -l . | grep '.dmp' | wc -l)
+    local _countConvert=$(expr $_counts + 0)
+    if [ $_countConvert -gt 3 ];
+    then
+        local _removeDmpFile=$(ls -tp . | grep '.dmp' | grep -v '/$' | tail -n $(expr ${_counts} - 3) | xargs -I {} rm -- {})
+        if [ $? -ne 0 ]; 
+        then 
+            _logRecord "${MESSAGE[3]}" 
+        else 
+            _logRecord "${MESSAGE[4]}" 
+        fi
     fi
-
-    #4. delete all txt files, only keep 3 files 
-    local _counts=$(ls -l ${gvppDmpDir} | grep '.txt' | wc -l)
-    ls -tp ${gvppDmpDir} | grep '.txt'  | grep -v '/$' | tail -n $(expr $_counts - 3) | xargs -I {} rm -- {}
-    if [ $? -ne 0 ]; then 
-        _logRecord "${MESSAGE[5]}" 
-    else 
-        _logRecord "${MESSAGE[6]}" 
+    
+    local _counts=$(ls -l . | grep '.txt' | wc -l)
+    local _countConvert=$(expr $_counts + 0)
+    if [ $_countConvert -gt 3 ];
+    then
+        local _removeTxtFiles=$(ls -tp . | grep '.txt'  | grep -v '/$' | tail -n $(expr $_counts - 3) | xargs -I {} rm -- {})
+        if [ $? -ne 0 ]; 
+        then 
+            _logRecord "${MESSAGE[5]}" 
+        else 
+            _logRecord "${MESSAGE[6]}" 
+        fi
     fi
+    
+    cd ${_workingDir}
 
-    #5. check available space
+    #3. check available space
     if [ $spaceAvailable -lt 30 ]; then 
         _logRecord "${MESSAGE[7]}"  
         _logRecord "${MESSAGE[8]}"  
-        exit 4
+        _cleanUp "1"
     else 
         _logRecord "${MESSAGE[9]}"  
     fi
 
-    # Check #2
+    # Check oracle home version 19c if it is already created
     if [ ! -d $ora_Home ]; then 
         _logRecord "${MESSAGE[10]}"  
         mkdir -p $ora_Home
@@ -297,14 +326,12 @@ prerequisiteCheck()
     _logRecord " "
 }
 
-#2. Install all packages from /oracle12c/upgrade/rpm (as root user)
+#Task 2. Install all packages from /oracle12c/upgrade/rpm (as root user)
 installPkg()
 {
-    echo -e "Step 2: Start installing packages !"
+    taskRecord="2"
 
-    local pkgPath=/oracle12c/upgrade/rpm
-    local pkgLog=/oracle12c/upgrade/rpm/.rpm_install.log
-    : > $pkgLog
+    # Local variables
     declare -a pkgItem=(
         "smartmontools-7.0-2.el7.x86_64" 
         "libXmu-1.1.2-2.el7.x86_64" 
@@ -317,39 +344,82 @@ installPkg()
         "oracle-database-preinstall-19c-1.0-2.el7.x86_64"
         )
 
+    declare -a MESSAGE=(
+        "--Step 2: Install oracle packages--" #0
+        "FAILED: Missing package named: " #1
+        "PASS: Installing successfully package named: " #2
+        "FAILED: Cannot install package named " #3
+        "INFO: Package was already installed named " #4
+        )
+
+    #1. introduce
+    _logRecord "${MESSAGE[0]}" 
+
+    #2. functioning
+    : > ${_pkgRpmLog}
+    
     for i in "${pkgItem[@]}"
     do
-        if [ ! -f "${pkgPath}/${i}.rpm" ]; then 
-            echo -e "Missing package ${i} !"
+        if [ ! -f "${_pkgRpm}/${i}.rpm" ]; then 
+            _logRecord "${MESSAGE[1]} ${i}.rpm" 
         else 
-            local pkgCheck=$(yum list installed | grep ${i})
-            if [ "$pkgCheck" == "" ]; then 
-                yum -y install ${pkgPath}/${i}.rpm >> $pkgLog
+            local _pkgCheck=$(yum list installed | grep ${i})
+            if [ "$_pkgCheck" == "" ]; then 
+                yum -y install ${_pkgRpm}/${i}.rpm >> ${_pkgRpmLog}
                 if [ $? -eq 0 ]; then 
-                    echo -e "Package ${i} was installed successfully!";
+                    _logRecord "${MESSAGE[2]} ${i}.rpm"
                 else 
-                    echo -e "Failed installing package ${i}.rpm, see ${pkgLog} for more detail";
+                    _logRecord "${MESSAGE[3]} ${i}.rpm, see ${_pkgRpmLog} for more detail !";
+                    _cleanUp "21"
                 fi
-                echo >> ${pkgLog}
+                echo >> ${_pkgRpmLog}
             else
-                echo -e "Package ${i} existed !";
+                _logRecord "${MESSAGE[3]} ${i}.rpm"
             fi
         fi
     done    
-    echo 
+    _logRecord " " 
 }
 
-#3. Extracting all neccessary files (as oracle user)
+#Task 3. Extracting all neccessary files (as oracle user)
 fileDecompression()
 {
-    echo -e "Step 3: Start decompressing some files !"
+    taskRecord="3"
 
-    if [ ! -f ${ora_Upgrade}/main/LINUX.X64_193000_db_home.zip ]; then 
-        exit 4
+    # Local variables
+    local _rc=
+    declare -a MESSAGE=(
+        "--Step 3: Decompress the oracle database 19c upgrade files--" #0
+        "FAILED: misssing file named LINUX.X64_193000_db_home.zip, rolling back code 31 !" #1 
+        "INFO: make sure the ${ora_Upgrade}/main directory contain file named LINUX.X64_193000_db_home.zip !" #2
+        "FAILED: miss file named preupgrade_19_cbuild_10_lf.zip, rolling back code 32 !" #3
+        "INFO: make sure the ${ora_Upgrade}/main directory contain file named preupgrade_19_cbuild_10_lf.zip !" #4
+        "PASS: clear some files #1 before decompression successfully !" #5
+        "FAILED: cannot clear some files #1 !" #6
+        "PASS: clear some files #2 before decompression successfully !" #7
+        "FAILED: cannot clear some files #2! " #8
+        "FAILED: cannot decompress the neccesary setup file #1, see ${_pkgDecLog} for more information, rolling back code 33 !" #9
+        "PASS: decompress the neccesary setup file #1 successfully !" #10
+        "FAILED: cannot decompress the neccesary setup file #2, see ${_pkgDecLog} for more information, rolling back code 34 !" #11
+        "PASS: decompress the neccesary setup file #2 successfully !" #12
+        )
+
+    #1. introduce
+    _logRecord "${MESSAGE[0]}" 
+
+    #2. functioning
+    : > ${_pkgDecLog}
+
+    if [ ! -f ${_pkgDec}/LINUX.X64_193000_db_home.zip ]; then 
+        _logRecord "${MESSAGE[1]}"
+        _logRecord "${MESSAGE[2]}"  
+        _cleanUp "31"
     fi 
 
-    if [ ! ${ora_Upgrade}/main/preupgrade_19_cbuild_10_lf.zip ]; then 
-        exit 4
+    if [ ! -f ${_pkgDec}/preupgrade_19_cbuild_10_lf.zip ]; then 
+        _logRecord "${MESSAGE[3]}"
+        _logRecord "${MESSAGE[4]}"  
+        _cleanUp "32"
     fi 
 
     if [ ! -d ${ora_Home}/rdbms/admin/ ]; then
@@ -358,118 +428,159 @@ fileDecompression()
 
     # Cleanup before decompression
     rm -rf ${ora_Home}/* >/dev/null 2>&1
+    if [ $? -eq 0 ]; then 
+        _logRecord "${MESSAGE[5]}"
+    else 
+        _logRecord "${MESSAGE[6]}"
+    fi 
+    
     rm -rf ${ora_Home}/rdbms/admin/* >/dev/null 2>&1
+    if [ $? -eq 0 ]; then 
+        _logRecord "${MESSAGE[7]}"
+    else 
+        _logRecord "${MESSAGE[8]}"
+    fi 
+
     # For all hidden files and folders
     find ${ora_Home}/.* -type d -prune -exec rm -rf {} + >/dev/null 2>&1
     find ${ora_Home}/rdbms/admin/.* -type d -prune -exec rm -rf {} + >/dev/null 2>&1
 
     # Decompress files
-    unzip -o ${ora_Upgrade}/main/LINUX.X64_193000_db_home.zip -d ${ora_Home}/ >> /root/ginotest
-    rc=$?
-    if [ $rc -ne 0 ]; then 
-        echo -e "Error occurred during decompressing the setup file !"
-        exit 4
+    unzip -o ${_pkgDec}/LINUX.X64_193000_db_home.zip -d ${ora_Home}/ >> ${_pkgDecLog}
+    if [ $? -ne 0 ]; then 
+        _logRecord "${MESSAGE[9]}"
+        _cleanUp "33"
     else 
-        echo -e "Decompressing the setup file 1 has been completed successfully!"
+        _logRecord "${MESSAGE[10]}"
     fi
 
-    echo >> /root/ginotest
+    echo >> ${_pkgDecLog}
 
-    unzip -o ${ora_Upgrade}/main/preupgrade_19_cbuild_10_lf.zip -d ${ora_Home}/rdbms/admin/ >> /root/ginotest
-    rc=$?
-    if [ $rc -ne 0 ]; then 
-        echo -e "Error occurred during decompressing the setup file !"
-        exit 4
+    unzip -o ${_pkgDec}/preupgrade_19_cbuild_10_lf.zip -d ${ora_Home}/rdbms/admin/ >> ${_pkgDecLog}
+    if [ $? -ne 0 ]; then 
+        _logRecord "${MESSAGE[11]}"
+        _cleanUp "34"
     else 
-        echo -e "Decompressing the setup file 2 has been completed successfully!"
+        _logRecord "${MESSAGE[12]}"
     fi
 
     chown -R ${ora_User}:${ora_Group} ${ora_Home} 
-
-    echo
+    _logRecord " "
 }
 
-#4. Enviroment preparation (as oracle user)
+#Task 4. Enviroment preparation (as oracle user)
 envPrep()
 {
-    echo -e "Step 4: Start enviroment setup !"
+    taskRecord="4"
 
-    local backup_Dir=/oracle12c/dbpatch/backup
+    # Local variables
+    declare -a MESSAGE=(
+        "--Step 4: Setup the new oracle environment--" #0
+        "PASS: oracle backup directory created !" #1
+        "FAILED: cannot backup the .profile file, rolling back code 41 !" #2
+        "PASS: backup the old file named .profile of oracle 12c #1 successfully !" #3
+        "FAILED: cannot backup the old file named .profile of oracle 12c !" #4
+        "PASS: backup the old file named .profile of oracle 12c #2 successfully !" #5
+        "FAILED: cannot setup the new file named .profile of oracle 19c !" #6
+        "PASS: setup the new file named .profile oracle 19c successfully !" #7
+        "FAILED: there is no file named .profile in ${ora_Setup} directory, rolling back code 42 !" #8
+        "FAILED: there is no file named .profile in /home/${ora_User} directory, rolling back code 43 !" #9
+        "INFO: the new file named .profile is already setup !" #10
+        "FAILED: the new file named .profile of oracle 19c is setup incorrectly, rolling back code 44 !" #11
+        "FAILED: the new file named .profile of oracle 19c is setup incorrectly, rolling back code 45 !" #12
+        )
+
+    #1. introduce
+    _logRecord "${MESSAGE[0]}" 
     
-    if [ ! -d ${backup_Dir} ]; then 
-        mkdir -p ${backup_Dir}
-        echo -e "Oracle backup directory created"
+    #2. functioning
+    if [ ! -d ${ora_Bk} ]; then 
+        mkdir -p ${ora_Bk}
+        _logRecord "${MESSAGE[1]}" 
     fi 
 
-    if [ ! -f ${backup_Dir}/.profile_12c ]; then 
-        if [ -f /home/${ora_User}/.profile ]; then 
-            mv /home/${ora_User}/.profile ${backup_Dir}/.profile_12c
-            local rc=$?
-            if [ $rc -ne 0 ]; then 
-                echo -e "Error occurred during backing up the .profile. Message: $rc !"
-                _cleanUp
+    if [ ! -f ${ora_Bk}/.profile_12c ]; 
+    then 
+        if [ -f /home/${ora_User}/.profile ]; 
+        then 
+            mv /home/${ora_User}/.profile ${ora_Bk}/.profile_12c 2>/dev/null
+            if [ $? -ne 0 ]; 
+            then 
+                _logRecord "${MESSAGE[2]}" 
+                _cleanUp "41"
             else
-                echo -e "Backing up the old .profile successfully !"
+                _logRecord "${MESSAGE[3]}" 
             fi
             
-            cp ${backup_Dir}/.profile_12c /home/${ora_User}/
-            local rc=$?
-            if [ $rc -ne 0 ]; then 
-                echo -e "Error occurred during copying the old .profile to the oracle home directory. Message: $rc !"
+            cp ${ora_Bk}/.profile_12c /home/${ora_User}/ 2>/dev/null
+            if [ $? -ne 0 ]; 
+            then 
+                _logRecord "${MESSAGE[4]}"
             else
-                echo -e "Cloning the old .profile successfully !"
+                _logRecord "${MESSAGE[5]}"
             fi
 
-            if [ -f ${ora_Upgrade}/main/.profile ]; then 
-                cp ${ora_Upgrade}/main/.profile /home/${ora_User}/
-                local rc=$?
-                if [ $rc -ne 0 ]; then 
-                    echo -e "Error occurred during setting up the new .profile. Message: $rc !"
+            if [ -f ${ora_Setup}/profile ]; 
+            then 
+                cp ${ora_Setup}/profile /home/${ora_User}/.profile 2>/dev/null
+                if [ $? -ne 0 ]; 
+                then 
+                    _logRecord "${MESSAGE[6]}"
                 else
-                    echo -e "Setting up the new .profile successfully !"
+                    _logRecord "${MESSAGE[7]}"
                 fi
             else 
-                mv ${backup_Dir}/.profile_12c /home/${ora_User}/.profile
-                echo -e "There is no .profile file in ${ora_Upgrade}/main/ directory !"
-                _cleanUp
+                cp ${ora_Bk}/.profile_12c /home/${ora_User}/.profile 2>/dev/null
+                _logRecord "${MESSAGE[8]}"
+                _cleanUp "42"
             fi
         else 
-            echo -e "There is no .profile file in /home/${ora_User} directory !"
-            _cleanUp
+            _logRecord "${MESSAGE[9]}"
+            _cleanUp "43"
         fi
     else 
-        echo -e "Setting up the new .profile file is already done !"
+        _logRecord "${MESSAGE[10]}"
     fi
 
-    chmod -R 750 ${backup_Dir}
-    chown -R ${ora_User}:${ora_Group} ${backup_Dir} 
+    chmod -R 750 ${ora_Bk}
+    chown -R ${ora_User}:${ora_Group} ${ora_Bk} 
     chown -R ${ora_User}:${ora_Group} /home/${ora_User} 
 
     $runUser '. ~/.profile' >/dev/null 2>&1
-    local rc=$?
-    if [ $rc -ne 0 ]; then 
-        echo -e "Setting up the environment is incorrect. Message: $rc !"
-        _cleanUp
+    if [ $? -ne 0 ]; then 
+        _logRecord "${MESSAGE[11]}"
+        _cleanUp "44"
     fi
 
     #Verification
-    $runUser "env | grep OraHome19c" >/dev/null 2>&1
-    local rc=$?
-    if [ $rc -ne 0 ]; then 
-        echo -e "Setting up the environment is incorrect. Message: $rc !"
-        _cleanUp
+    $runUser "cat /home/${ora_User}/.profile | grep OraHome19c" >/dev/null 2>&1
+    if [ $? -ne 0 ]; then 
+        _logRecord "${MESSAGE[12]}"
+        _cleanUp "45"
     fi
     
-    echo
+    _logRecord " "
 }
 
 #5. Installing the oracle 19c database
 oracle19cInstallation()
 {
-    echo -e "Step 5: Start installing oracle 19c database !"
+    taskRecord="5"
+
+    # Local variables
+    local rc=
+    declare -a MESSAGE=(
+        "--Step 5: Install the oracle 19c database--" #0
+        "FAILED: the oracle runInstaller script return error, the oracle database installation cannot be done !" #1
+        "FAILED: the oracle root script return error, the oracle database installation cannot be done !" #2
+        "PASS: the oracle 19c database installation has been done successfully !" #3
+        )
+
+    #1. introduce
+    _logRecord "${MESSAGE[0]}" 
     
     # Install 1: oracle 19c database
-    $runUser "cd ${ora_Home} && \
+    rc=$($runUser "cd ${ora_Home} && \
     ./runInstaller -ignorePrereq -waitforcompletion -silent \
 		-responseFile ${ora_Home}/install/response/db_install.rsp \
 		oracle.install.option=INSTALL_DB_SWONLY \
@@ -486,70 +597,76 @@ oracle19cInstallation()
 		oracle.install.db.OSKMDBA_GROUP=dba \
 		oracle.install.db.OSRACDBA_GROUP=dba \
 		SECURITY_UPDATES_VIA_MYORACLESUPPORT=false \
-        DECLINE_SECURITY_UPDATES=true"
-
-    local rc=$?
+        DECLINE_SECURITY_UPDATES=true")
     if [ $rc -ne 0 ]; then 
-        echo -e "---Section 1: Error occurred during oracle 19c installation or you have already run this installation. Message: $rc"
-        _cleanUp
+        _logRecord "${MESSAGE[1]}. Message ${rc}" 
+        _cleanUp "51"
     fi		
 
     #Install 2: root configuration
-    ${ora_Home}/root.sh
-    local rc=$?
+    rc=$(${ora_Home}/root.sh)
     if [ $rc -ne 0 ]; then 
-        echo -e "---Section 2: Error occurred during running root script of oracle 19c installation. Message: $rc"
-        _cleanUp
+        _logRecord "${MESSAGE[2]}. Message ${rc}" 
+        _cleanUp "52"
     fi
 
     chown -R ${ora_User}:${ora_Group} /oracle12c
 
-    echo -e "Oracle 19c installation has been done successfully !"	
-    echo
+    _logRecord "${MESSAGE[3]}" 
+    _logRecord " " 
 
 }
 
 #6. Switching the .profile from 12c to 19c and vice versa
 switchProfile()
 {
+    taskRecord="6"
 
-    
-
-    local oraBase=/home/oracle/
+    # Local variables
     #switch 1 => .profile - current 12c
     #switch 2 => .profile - current 19c
     local switch=$1
+    local oraBase=/home/${ora_User}/
 
-    
+    declare -a MESSAGE=(
+        "--Switching .profile file from oracle 12c to 19c--" #0
+        "PASS: switch the version of .profile file from oracle 12c to 19c has been done successfully !" #1
+        "--Switching .profile file from oracle 19c to 12c--" #2
+        "PASS: switch the version of .profile file from oracle 19c to 12c has been done successfully !" #3
+        "FAILED: unknown parameter $switch !" #4
+        "FAILED: cannot switch the version of the .profile file !" #5
+        )
 
     if [ "$switch" == "1" ]; then 
         if [ -f ${oraBase}/.profile_19c ]; then
-            echo -e "Step 6: Start switching .profile file from oracle 12c to 19c !"
-            mv -f ${oraBase}/.profile ${oraBase}/.profile_12c
-            mv -f ${oraBase}/.profile_19c ${oraBase}/.profile
-            echo -e "Switching .profile from oracle 12c to 19c has been done successfully !"	
+            _logRecord "${MESSAGE[0]}" 
+            mv -f ${oraBase}/.profile ${oraBase}/.profile_12c 2>/dev/null
+            mv -f ${oraBase}/.profile_19c ${oraBase}/.profile 2>/dev/null
+            _logRecord "${MESSAGE[1]}" 	
         fi
     elif [ "$switch" == "2" ]; then
         if [ -f ${oraBase}/.profile_12c ]; then
-            echo -e "Step 6: Start switching .profile file from oracle 19c to 12c !"
-            mv -f ${oraBase}/.profile ${oraBase}/.profile_19c
-            mv -f ${oraBase}/.profile_12c ${oraBase}/.profile
-            echo -e "Switching .profile from oracle 19c to 12c has been done successfully !"	
+            _logRecord "${MESSAGE[2]}"
+            mv -f ${oraBase}/.profile ${oraBase}/.profile_19c 2>/dev/null
+            mv -f ${oraBase}/.profile_12c ${oraBase}/.profile 2>/dev/null
+            _logRecord "${MESSAGE[3]}"
+        elif [ -f ${ora_Bk}/.profile_12c ];
+        then 
+            mv -f ${ora_Bk}/.profile_12c ${oraBase}/.profile 2>/dev/null
+        else
+            _cleanUp "61"
         fi
     else
-        echo -e "This script does not support parameter $switch";
+        _logRecord ${MESSAGE[4]}
+        _cleanUp "62"
     fi
 
     $runUser '. ~/.profile' >/dev/null 2>&1
-    local rc=$?
-    if [ $rc -ne 0 ]; then 
-        echo -e "Failed switching the .profile. Message: $rc !"
-        _cleanUp
+    if [ $? -ne 0 ]; then 
+        _logRecord "${MESSAGE[5]}"
+        _cleanUp "63"
     fi
-
-    
-    echo
-
+    _logRecord " "
 }
 
 #7. Preupgrade tasks
@@ -762,27 +879,41 @@ _cleanUp()
 {
     # Variables 
     declare -a MESSAGE=(
-        "--Appendix 5: Error occured, perform cleanup--"
-        "INFO: only phases 1,2,3 are covered by the cleanup function. For other phase, you should delete the DB and re-create it then perform the data restore and contact support."
-        "FAILED: cannot start the database and listener correctly, please check that !"
+        "----------ROLLBACK----------" #0
+        "INFO: only phases 1,2,3 are covered by the cleanup function. For other phase, you should delete the DB and re-create it then perform the data restore and contact for support." #1
+        "INFO: ensure the available space of /oracle12c partition is greater than 30 Gb before taking place the oracle 19c upgrade!" #2
+        "FAILED: cannot remove the installed files !" #3
         )
     local rollback=$1
 
+    _logRecord " "
+    _logRecord "${MESSAGE[0]}"
     _logRecord "${MESSAGE[1]}"
-    _logRecord "${MESSAGE[2]}"
 
-    case $rollback in 
-        "1")
-            _logRecord "${MESSAGE[3]}"
+    case $taskRecord in 
+        "1") #task 1
+            _logRecord "${MESSAGE[2]}"
             ;;
-        "2")
+        "2") #task 2
+            __task2Rollback
             ;;
-        "3")
+        "3") #task 3
+            __task3Rollback "$rollback"
+            __task2Rollback
+            ;;
+        "4") #task 4
+            __task4Rollback "$rollback"
+            __task3Rollback "$rollback"
+            __task2Rollback
+            ;;
+        "6") #task 6
+            __task6Rollback "$rollback"
+            __task3Rollback "$rollback"
+            __task2Rollback
             ;;
         *)
             ;;
-    esac
-
+    esac  
     exit 4;
 
     #Step 1: Shut down listener and database as oracle 19c .profile
@@ -794,38 +925,6 @@ _cleanUp()
     #sed -i 's/OraHome19c/OraHome1/g' /etc/oratab
 
     #Step 3: Removing package 
-    #local pkgPath=/oracle12c/upgrade/rpm
-    #local pkgLog=/oracle12c/upgrade/rpm/.rpm_remove.log
-    #: > $pkgLog
-    #declare -a pkgItem=(
-    #    "smartmontools" 
-    #    "libXmu" 
-    #    "xorg-x11-xauth"
-    #    "libXxf86misc"
-    #    "libdmx"
-    #    "libXxf86dga"
-    #    "libXv"
-    #    "xorg-x11-utils"
-    #    "oracle-database-preinstall-19c"
-    #    )
-
-    #for i in "${pkgItem[@]}"
-    #do
-    #    local pkgCheck=$(yum list installed | grep ${i})
-    #    if [ "$pkgCheck" != "" ]; then 
-    #        yum -y remove ${pkgPath}/${i} >> $pkgLog
-    #        if [ $? -eq 0 ]; then 
-    #            echo -e "Package ${i} was removed successfully!";
-    #        else 
-    #            echo -e "Failed removing package ${i}.rpm, see ${pkgLog} for more detail";
-    #        fi
-    #        echo >> ${pkgLog}
-    #    else
-    #        echo -e "Package ${i} is not yet installed !";
-    #    fi
-    #done    
-
-    #rm -rf ${ora_Home}
 
     #Step 4: Start up the listener and database as oracle 12c .profile
     #switchProfile 2
@@ -838,19 +937,128 @@ _cleanUp()
 
 }
 
+__task2Rollback()
+{
+    local task2Msg=
+    declare -a _pkgItem=(
+        "smartmontools" 
+        "libXmu" 
+        "xorg-x11-xauth"
+        "libXxf86misc"
+        "libdmx"
+        "libXxf86dga"
+        "libXv"
+        "xorg-x11-utils"
+        "oracle-database-preinstall-19c"
+        )
+
+    : > $_pkgRpmLogRemoval
+
+    for i in "${_pkgItem[@]}";
+    do
+        local _pkgCheck=$(yum list installed | grep ${i})
+        if [ "$_pkgCheck" != "" ]; 
+        then 
+            yum -y remove ${i} >> $_pkgRpmLogRemoval
+            if [ $? -eq 0 ]; 
+            then
+                task2Msg="PASS: remove package named ${i} successfully !"
+                _logRecord "$task2Msg"
+            else 
+                task2Msg="FAILED: cannot remove package named ${i}, see ${_pkgRpmLogRemoval} for more detail !"
+                _logRecord "$task2Msg"
+            fi
+            echo >> ${_pkgRpmLogRemoval}
+        else
+            task2Msg="INFO: package named ${i} was not installed !"
+            _logRecord "$task2Msg"
+        fi
+    done
+}
+
+__task3Rollback()
+{
+    local rollbackCode=$1
+    # Variables 
+    declare -a MESSAGE=(
+        "FAILED: cannot remove the installed files !" #0
+        )
+
+    if [ "$rollbackCode" == "31" ] || [ "$rollbackCode" == "32" ];
+    then 
+        :
+    elif [ "$rollbackCode" == "33" ] || [ "$rollbackCode" == "34" ];
+    then
+        find ${ora_Home}/.* -type d -prune -exec rm -rf {} + >/dev/null 2>&1
+        find ${ora_Home}/rdbms/admin/.* -type d -prune -exec rm -rf {} + >/dev/null 2>&1
+        
+        rm -rf ${ora_Home}/rdbms/admin/* >/dev/null 2>&1
+        if [ $? -ne 0 ]; then _logRecord "${MESSAGE[0]}"; fi 
+        
+        rm -rf ${ora_Home}/* >/dev/null 2>&1
+        if [ $? -ne 0 ]; then _logRecord "${MESSAGE[0]}"; fi 
+    fi
+}
+
+__task4Rollback()
+{
+    local rollbackCode=$1
+    local msg=
+    if [ "$rollbackCode" == "41" ] || [ "$rollbackCode" == "42" ];
+    then 
+        $runUser '. ~/.profile' >/dev/null 2>&1
+    elif [ "$rollbackCode" == "43" ] || [ "$rollbackCode" == "44" ] || [ "$rollbackCode" == "45" ] ;
+    then
+        if [ -f /home/${ora_User}/.profile_12c ];
+        then
+            mv -f /home/${ora_User}/.profile_12c /home/${ora_User}/.profile 2>/dev/null
+        elif [ -f ${ora_Bk}/.profile_12c ]; 
+        then 
+            mv -f ${ora_Bk}/.profile_12c /home/${ora_User}/.profile 2>/dev/null
+        else
+            :
+        fi  
+        msg="PASS: rollback the old file named .profile of oracle 12c successfully !"
+        _logRecord "$msg"
+    fi
+}
+
+__task6Rollback()
+{
+    local rollbackCode=$1
+    local msg=
+    if [ "$rollbackCode" == "61" ] || [ "$rollbackCode" == "62" ];
+    then 
+        :
+    elif [ "$rollbackCode" == "63" ];
+    then 
+        if [ -f /home/${ora_User}/.profile_12c ];
+        then
+            mv -f /home/${ora_User}/.profile_12c /home/${ora_User}/.profile 2>/dev/null
+        elif [ -f ${ora_Bk}/.profile_12c ]; 
+        then 
+            mv -f ${ora_Bk}/.profile_12c /home/${ora_User}/.profile 2>/dev/null
+        else
+            :
+        fi
+        msg="PASS: rollback the old file named .profile of oracle 12c successfully !"
+        _logRecord "$msg"
+    fi
+}
+
 
 #Main. As root user, run the below functions
 
 _logRecord " "
-#phase 1: make sure the database is already started up before the oracle19c upgrade.
-_startupDB 0
-_startupListener
+#phase 1: make sure the database is already started up before the oracle19c upgrade (Done)
+#_startupDB 0
+#_startupListener
 prerequisiteCheck
 
-#Phase 2: oracle 19c installation
-#installPkg
+#Phase 2: oracle 19c installation (In-progress)
+installPkg
 #fileDecompression
-#envPrep
+envPrep
 #oracle19cInstallation
 
 #Phase 3: preupgrade oracle 19c as .profile of 12c.
@@ -863,3 +1071,5 @@ prerequisiteCheck
 
 
 # Continue here
+endMsg="INFO: for more information, please check the log file ${upgrade_Logs}"
+echo "${endMsg}"

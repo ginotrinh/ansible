@@ -1,6 +1,6 @@
 ---
 - name: Transferring files
-  hosts: ginodb1
+  hosts: localhost
   gather_facts: no
 
   tasks:

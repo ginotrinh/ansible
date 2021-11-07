@@ -1,0 +1,26 @@
+---
+- name: Transferring oracle 19c profile file
+  hosts: localhost
+  gather_facts: no
+
+  tasks:
+    - name: 1. Deleting the old file named 'profile' of oracle 19c on the remote host.
+      file:
+        state: absent
+        path: /oracle12c/upgrade/setup/profile
+      become: yes
+
+    - name: 2. Uploading the new file named 'profile' of oracle 19c to the remote host.
+      copy:
+        src: /ansible/data/profile
+        dest: /oracle12c/upgrade/setup/
+        owner: oracle
+        group: dba
+        mode: 0755
+      become: yes
+
+    - name: 3. Verify the new file named 'profile' of oracle 19c is uploaded.
+      shell: "ls -la /oracle12c/upgrade/setup/profile"
+      register: file_Verification
+      become: yes
+    - debug: var=file_Verification.stdout_lines

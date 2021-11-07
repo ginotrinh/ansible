@@ -19,6 +19,10 @@ chown -R ${ora_User}:${ora_Group} /oracle12c
 
 currentDir=$(pwd)
 cd ${gvppDmpDir}
-for i in {1..2}; do touch gvpp${i}.dmp; touch gvpp${i}.txt; done;
+for i in {0..20}; 
+do 
+    touch GVPP$(date +%Y%m%d%H%M%S)${i}.dmp; 
+    touch GVPP$(date +%Y%m%d%H%M%S)${i}.txt; 
+done;
 cd ${currentDir}
 

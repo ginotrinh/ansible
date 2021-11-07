@@ -1,5 +1,10 @@
 docker run -it -v /Users/trinhtuanphong/Desktop/ansible:/ansible --env-file /Users/trinhtuanphong/Desktop/ansible/config/ansible.env willhallonline/ansible:latest /bin/sh
 
+#P&P DB VM
 ansible-playbook -i /ansible/config/inventory /ansible/playbooks/transfer_orclScript.yml	
 ansible-playbook -i /ansible/config/inventory /ansible/playbooks/transfer_profile.yml
+
+#Localhost
 ansible-playbook -i /ansible/config/inventory /ansible/playbooks/transfer_oracleTest.yml
+ansible-playbook -i /ansible/config/inventory /ansible/playbooks/transfer_oracleUpgrade.yml
+ansible-playbook -i /ansible/config/inventory /ansible/playbooks/transfer_profile19c.yml

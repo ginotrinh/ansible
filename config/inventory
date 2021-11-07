@@ -4,10 +4,19 @@
 [DB]
 ginodb1 ansible_host=192.168.1.200
 
+[localhost]
+ginoserver ansible_host=10.10.1.2 
+
 #Vars
 [DB:vars]
 ansible_port=22
 ansible_user=secadm
 ansible_ssh_pass=Security123!
 ansible_become_pass=Security123!
+
+[localhost:vars]
+ansible_port=22
+ansible_user=root
+ansible_ssh_pass=930610
+ansible_become_pass=930610
 

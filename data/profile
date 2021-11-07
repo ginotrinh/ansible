@@ -1,0 +1,14 @@
+export ORACLE_BASE=/oracle12c
+export ORACLE_HOME=$ORACLE_BASE/OraHome19c
+export ORACLE_INVENTORY=/home/oracle/oraInventory
+export ORACLE_HOSTNAME=$(hostname)
+export PATH=/oracle12c/OraHome19c/bin:/oracle12c/OraHome19c/OPatch:/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin
+export LD_LIBRARY_PATH=:/oracle12c/OraHome19c/lib
+export PERLHOME=/oracle12c/OraHome19c/perl
+export ORACLE_SID=ORCL
+export ORACLE_HOME_LISTNER=/oracle12c/OraHome19c
+
+export EDITOR=vi
+ulimit -n 65536
+
+export JAVA_HOME=/usr/lib/jvm/jre-1.8.0-openjdk
