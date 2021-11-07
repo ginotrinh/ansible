@@ -28,6 +28,7 @@ _logRecord()
         > ${upgrade_Logs}
     fi
 
+    echo "${msg}"
     echo "${msg}" >> ${upgrade_Logs}
 }
 
@@ -43,7 +44,7 @@ _startupDB()
         'INFO: database is already started !'
         )
 
-    echo "${MESSAGE[0]}"
+    _logRecord "${MESSAGE[0]}"
 
     # 0: startup state
     # 1: shutdown state
@@ -80,12 +81,12 @@ EOF' >/dev/null 2>&1
             _logRecord ${MESSAGE[1]}
             _cleanUp "1"
         fi
-        echo "${MESSAGE[2]}"
+        _logRecord "${MESSAGE[2]}"
     else
-        echo "${MESSAGE[3]}"
+        _logRecord "${MESSAGE[3]}"
     fi
 
-  echo
+  _logRecord " "
 } 
 
 #Appendix 2. Start up listener (as oracle user)
@@ -99,7 +100,7 @@ _startupListener()
         'INFO: listener is already started !'
         )
 
-    echo "${MESSAGE[0]}"
+    _logRecord "${MESSAGE[0]}"
 
     # 0: startup state
     # 1: shutdown state
@@ -119,18 +120,18 @@ _startupListener()
         $runUser "lsnrctl start" >/dev/null 2>&1
         $runUser "lsnrctl status" >/dev/null 2>&1
         if [ $? -ne 0 ]; then
-            echo "${MESSAGE[1]}"
+            _logRecord "${MESSAGE[1]}"
             _cleanUp "1"
         fi
 
-        echo "${MESSAGE[2]}"
+        _logRecord "${MESSAGE[2]}"
     else 
-        echo "${MESSAGE[3]}"
+        _logRecord "${MESSAGE[3]}"
     fi
 
   chown -R ${ora_User}:${ora_Group} /oracle12c
 
-  echo
+  _logRecord " "
 } 
 
 #Appendix 3. Shut down database (as oracle user)
@@ -248,52 +249,52 @@ prerequisiteCheck()
     local spaceAvailable=$(expr $spaceCheck + 0)
 
     #1. introduce
-    echo -e "${MESSAGE[0]}"   
+    _logRecord "${MESSAGE[0]}"   
 
     #2. delete all logs from $gvppLogDir directory.
     rm -f ${gvppLogDir}/* >/dev/null 
     if [ $? -ne 0 ]; then 
-        echo -e "${MESSAGE[1]}" 
+        _logRecord "${MESSAGE[1]}" 
     else 
-        echo -e "${MESSAGE[2]}" 
+        _logRecord "${MESSAGE[2]}" 
     fi
 
     #3. delete all dmp files, only keep 3 files 
     local _counts=$(ls -l ${gvppDmpDir} | grep '.dmp' | wc -l)
     local _listDmpFile=$(ls -tp ${gvppDmpDir} | grep '.dmp' | grep -v '/$' | tail -n $(expr \$_counts - 3))
     if [ $? -ne 0 ]; then 
-        echo -e "${MESSAGE[3]}" 
+        _logRecord "${MESSAGE[3]}" 
     else 
-        echo -e "${MESSAGE[4]}" 
+        _logRecord "${MESSAGE[4]}" 
     fi
 
     #4. delete all txt files, only keep 3 files 
     local _counts=$(ls -l ${gvppDmpDir} | grep '.txt' | wc -l)
     ls -tp ${gvppDmpDir} | grep '.txt'  | grep -v '/$' | tail -n $(expr $_counts - 3) | xargs -I {} rm -- {}
     if [ $? -ne 0 ]; then 
-        echo -e "${MESSAGE[5]}" 
+        _logRecord "${MESSAGE[5]}" 
     else 
-        echo -e "${MESSAGE[6]}" 
+        _logRecord "${MESSAGE[6]}" 
     fi
 
     #5. check available space
     if [ $spaceAvailable -lt 30 ]; then 
-        echo -e "${MESSAGE[7]}"  
-        echo -e "${MESSAGE[8]}"  
+        _logRecord "${MESSAGE[7]}"  
+        _logRecord "${MESSAGE[8]}"  
         exit 4
     else 
-        echo -e "${MESSAGE[9]}"  
+        _logRecord "${MESSAGE[9]}"  
     fi
 
     # Check #2
     if [ ! -d $ora_Home ]; then 
-        echo -e "${MESSAGE[10]}"  
+        _logRecord "${MESSAGE[10]}"  
         mkdir -p $ora_Home
     else 
-        echo -e "${MESSAGE[11]}"  
+        _logRecord "${MESSAGE[11]}"  
     fi
 
-    echo 
+    _logRecord " "
 }
 
 #2. Install all packages from /oracle12c/upgrade/rpm (as root user)
@@ -840,7 +841,7 @@ _cleanUp()
 
 #Main. As root user, run the below functions
 
-_logRecord "\n"
+_logRecord " "
 #phase 1: make sure the database is already started up before the oracle19c upgrade.
 _startupDB 0
 _startupListener
