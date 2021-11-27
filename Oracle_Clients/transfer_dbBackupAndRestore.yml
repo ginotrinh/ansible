@@ -1,0 +1,26 @@
+---
+- name: Oracle 19c client file transfer
+  hosts: gps1
+  gather_facts: no
+
+  tasks:
+    - name: 1. Deleting the old file named 'dbBackupAndRestore.sh' of oracle 19c on the remote host.
+      file:
+        state: absent
+        path: /home/c3/C3C/V10_0_0_39/bin/dbBackupAndRestore.sh
+      become: yes
+
+    - name: 2. Uploading the new file named 'dbBackupAndRestore.sh' of oracle 19c to the remote host.
+      copy:
+        src: /ansible/Oracle_Clients/dbBackupAndRestore.sh
+        dest: /home/c3/C3C/V10_0_0_39/bin/
+        owner: c3
+        group: c3
+        mode: 0755
+      become: yes
+
+    - name: 3. Verify the new file named 'dbBackupAndRestore.sh' of oracle 19c is uploaded.
+      shell: "ls -la /home/c3/C3C/V10_0_0_39/bin/dbBackupAndRestore.sh"
+      register: file_Verification
+      become: yes
+    - debug: var=file_Verification.stdout_lines

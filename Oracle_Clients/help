@@ -1,0 +1,6 @@
+docker run -it -v /Users/trinhtuanphong/Desktop/ansible:/ansible --env-file /Users/trinhtuanphong/Desktop/ansible/config/ansible.env willhallonline/ansible:latest /bin/sh
+
+#P&P PS VM
+ansible-playbook -i /ansible/config/inventory /ansible/Oracle_Clients/transfer_patchPreScript.yml
+ansible-playbook -i /ansible/config/inventory /ansible/Oracle_Clients/transfer_dbBackupAndRestore.yml
+

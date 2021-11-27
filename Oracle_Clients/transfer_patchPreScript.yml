@@ -1,0 +1,26 @@
+---
+- name: Oracle 19c client file transfer
+  hosts: gps1
+  gather_facts: no
+
+  tasks:
+    - name: 1. Deleting the old file named 'patchPreScript' of oracle 19c on the remote host.
+      file:
+        state: absent
+        path: /var/ccm/patches/GVPP_PS_10.0.0_0613/patchPreScript
+      become: yes
+
+    - name: 2. Uploading the new file named 'patchPreScript' of oracle 19c to the remote host.
+      copy:
+        src: /ansible/Oracle_Clients/patchPreScript
+        dest: /var/ccm/patches/GVPP_PS_10.0.0_0613/
+        owner: root
+        group: root
+        mode: 0755
+      become: yes
+
+    - name: 3. Verify the new file named 'patchPreScript' of oracle 19c is uploaded.
+      shell: "ls -la /var/ccm/patches/GVPP_PS_10.0.0_0613/patchPreScript"
+      register: file_Verification
+      become: yes
+    - debug: var=file_Verification.stdout_lines

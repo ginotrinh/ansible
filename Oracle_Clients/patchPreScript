@@ -1,0 +1,112 @@
+#!/bin/bash
+
+# Global variables
+nextopt=$2
+
+# MAIN function
+
+# The patch is applied - do actions
+function applyPatch(){
+    #PREPHASE code
+
+    #POSTPHASE code
+    runDbMgmtToolApply
+}
+
+function removePatch(){
+    #PREPHASE code
+    runDbMgmtToolRemove
+    
+    #POSTPHASE code
+}
+
+# FUNCTIONS
+
+# Oracle 19c Client changes
+function oracle19cClient(){
+    # Oracle Client 19c variables
+    oraclePSPATH=/oracle11g/OraHome1
+    c3cPSPATH=/home/${ps_User}
+    dbADDRESS=$($runUser "env | grep C3_SQL_SERVER | tr '=' ' ' | awk '{ print \$2  }'")
+    dbHOSTNAME=$(cat /etc/hosts | grep "$dbADDRESS" | awk '{ print $2  }')
+
+    cat >> $DYNAMIC_SCRIPT << EOF
+# Change owner
+chown -R c3:c3 /oracle11g
+# Update baseServer to point to $dbHOSTNAME instead of $dbADDRESS
+$runUser "sed -i \"s%$dbADDRESS%$dbHOSTNAME%g\" ${c3cPSPATH}/profiles/baseServer"
+
+# Update HOST and SERVICE_NAME in tnsnames.ora
+tnsnameHOST=\$(cat ${oraclePSPATH}/network/admin/tnsnames.ora | grep HOST | cut -d ')' -f 2 | awk '{print \$3}')
+tnsnameSERVICE=\$(cat ${oraclePSPATH}/network/admin/tnsnames.ora | grep SERVICE_NAME | tr -d '()' | awk '{print \$3}')
+tnsnameORCL=ORCL
+
+$runUser "sed -i \"s%\$tnsnameHOST%$dbHOSTNAME%g\" ${oraclePSPATH}/network/admin/tnsnames.ora"
+$runUser "sed -i \"s%\$tnsnameSERVICE%\$tnsnameORCL%g\" ${oraclePSPATH}/network/admin/tnsnames.ora"
+EOF
+}
+
+# Run dbMgmtTool for applying SQL data
+function runDbMgmtToolApply()
+{
+    # When applying the PS patch having SQL changes, we should run SQL application commands via DYNAMIC_SCRIPT.
+    if [ "$isSecondary" == "" ]
+    then 
+        echo -e "$runUser \"dbMgmtTool.sh -m patch -o apply -i ACQ-21743\"" >> $DYNAMIC_SCRIPT
+		echo -e "$runUser \"dbMgmtTool.sh -m patch -o apply -i ACQ-21729\"" >> $DYNAMIC_SCRIPT
+		echo -e "$runUser \"dbMgmtTool.sh -m patch -o apply -i ACQ-21744\"" >> $DYNAMIC_SCRIPT
+		echo -e "$runUser \"dbMgmtTool.sh -m patch -o apply -i ACQ-21656\"" >> $DYNAMIC_SCRIPT
+		echo -e "$runUser \"dbMgmtTool.sh -m patch -o apply -i ACQ-21816\"" >> $DYNAMIC_SCRIPT 
+    fi
+}
+
+# Run dbMgmtTool for removing SQL data
+function runDbMgmtToolRemove()
+{ 
+    # When removing patch having SQL changes, we should run SQL removal commands directly.
+    if [ "$isSecondary" == "" ]
+    then 
+        $runUser "dbMgmtTool.sh -m patch -o remove -i ACQ-21816"
+		$runUser "dbMgmtTool.sh -m patch -o remove -i ACQ-21656"
+		$runUser "dbMgmtTool.sh -m patch -o remove -i ACQ-21744"
+		$runUser "dbMgmtTool.sh -m patch -o remove -i ACQ-21729"
+		$runUser "dbMgmtTool.sh -m patch -o remove -i ACQ-21743"
+    fi
+}
+
+function initialize(){
+    DYNAMIC_SCRIPT="/opt/gvpp/gvpppatchpostphasescript"
+    ps_Opt=/opt/gvpp/c3chacmd
+    ps_User=c3
+    runUser="/sbin/runuser -l $ps_User -c"
+
+    if [ ! -f $DYNAMIC_SCRIPT ]
+    then
+        touch $DYNAMIC_SCRIPT
+        echo -e "#!/bin/bash" > $DYNAMIC_SCRIPT
+        echo -e "" > $DYNAMIC_SCRIPT
+    fi
+    chmod 755 $DYNAMIC_SCRIPT
+
+    node=`hostname -s`
+    sustatus=`haf query $node | grep $node | awk '{print $4}'`
+    isSecondary=$($runUser 'echo $CS_PS_ENABLED')
+
+    if [[ "$sustatus" == "LOCKED" || "$sustatus" == "LOCKED-INSTANTIATION" ]]; then
+        # No actions here
+        :
+    else
+        $ps_Opt shutdown MTCE
+    fi
+
+}
+
+# Execute getopt
+initialize
+oracle19cClient
+if [ "$nextopt" == "unpatch" ]
+then
+    removePatch
+else
+	applyPatch
+fi
