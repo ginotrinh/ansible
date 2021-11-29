@@ -1,0 +1,327 @@
+Ignore this since GUARANTEE_FLASHBACK_DATABASE -> only support for enterprise edition
+	Test take database snapshot by using Guaranteed Restore Points
+		root> mkdir -p /oracle12c/dbpatch/upgrade/fra
+		root> chown -R oracle:dba /oracle12c/
+		
+		oracle> sqlplus -S / as sysdba
+		select flashback_on from v$database;
+
+		FLASHBACK_ON
+		------------------
+		NO
+		
+		alter system set db_recovery_file_dest_size=10G;
+		System altered.
+		
+		alter system set db_recovery_file_dest='/oracle12c/dbpatch/upgrade/fra';
+		System altered.
+		
+		shutdown immediate
+		
+		startup mount
+		
+		alter database archivelog;
+		
+		alter database open;
+		Database altered.
+		
+		create restore point nov28_db12c guarantee flashback database;
+		Restore point created.
+		
+		col name for a20
+		col guarantee_flashback_database for a10
+		col time for a60
+		set lines 190
+		select name, guarantee_flashback_database, time from v$restore_point order by 1,2;
+		
+		create pfile='/oracle12c/OraHome1/dbs/backupDB.ora' from spfile;
+		File created.
+		
+	Test revert database snapshot of Guaranteed Restore Points
+		shutdown immediate
+		
+		startup mount
+		
+		col name for a20
+		col guarantee_flashback_database for a10
+		col time for a60
+		set lines 190
+		select NAME,GUARANTEE_FLASHBACK_DATABASE,TIME from v$restore_point;
+		
+		flashback database to restore point nov28_db12c;
+	
+Matters
+	Cannot use the RMAN to perform backup 
+	ORA-00439: feature not enabled: Fine-grained access control
+	
+	Cannot use the GUARANTEE_FLASHBACK_DATABASE to take snapshot of the database 
+	ORA-00439: feature not enabled
+	=> Only enterprise edition enable this.
+	
+	
+Oracle 19c Server installation 
+- Prerequisites:
+	root> 
+	mkdir -p /oracle12c/OraHome19c
+	
+- OS packages installation (DONE)
+- Oracle database 19c software installation 
+	root>
+	unzip -o /oracle12c/dbpatch/upgrade/setup/LINUX.X64_193000_db_home.zip -d root> /oracle12c/OraHome19c/
+	unzip -o /oracle12c/dbpatch/upgrade/setup/preupgrade_19_cbuild_10_lf.zip -d /oracle12c/OraHome19c/rdbms/admin/
+	chown -R oracle:dba /oracle12c/OraHome19c
+	
+	oracle> 
+	export ORACLE_BASE=/oracle12c 
+	export ORACLE_HOME=/oracle12c/OraHome19c
+	
+	cd /oracle12c/OraHome19c/
+	./runInstaller -ignorePrereq -waitforcompletion -silent  \
+    -responseFile ${ORACLE_HOME}/install/response/db_install.rsp               \
+    oracle.install.option=INSTALL_DB_SWONLY                                    \
+    ORACLE_HOSTNAME=proddb.localdomain                                         \
+    UNIX_GROUP_NAME=oinstall                                                   \
+    INVENTORY_LOCATION=/home/oracle/oraInventory/                                  \
+    SELECTED_LANGUAGES=en                                                        \
+    ORACLE_HOME=${ORACLE_HOME}                                                 \
+    ORACLE_BASE=${ORACLE_BASE}                                                 \
+    oracle.install.db.InstallEdition=EE                                        \
+    oracle.install.db.OSDBA_GROUP=dba                                          \
+    oracle.install.db.OSBACKUPDBA_GROUP=dba                                    \
+    oracle.install.db.OSDGDBA_GROUP=dba                                        \
+    oracle.install.db.OSKMDBA_GROUP=dba                                        \
+    oracle.install.db.OSRACDBA_GROUP=dba                                       \
+    SECURITY_UPDATES_VIA_MYORACLESUPPORT=false                                 \
+    DECLINE_SECURITY_UPDATES=true
+	
+	root> 
+	/oracle12c/OraHome19c/root.sh
+
+Pre-upgrade tasks
+- Copy spfile and password file from 12c to 19c home
+	oracle> 
+	export ORACLE_BASE=/oracle12c 
+	export ORACLE_HOME=/oracle12c/OraHome1
+	sqlplus -S / as sysdba 
+	show parameter spfile
+	NAME				     TYPE	 VALUE
+	------------------------------------ ----------- ------------------------------
+	spfile				     string	 /oracle12c/OraHome1/dbs/spfileORCL.ora
+	
+	cp /oracle12c/OraHome1/dbs/spfileORCL.ora /oracle12c/OraHome19c/dbs/
+	cp /oracle12c/OraHome1/dbs/orapwORCL /oracle12c/OraHome19c/dbs/
+	
+- List of invalid Objects
+	oracle> 
+	sqlplus / as sysdba 
+	select count(*) from dba_objects where status='INVALID';
+	COUNT(*)
+	----------
+		 1
+	SQL> select owner, object_type, object_name from dba_objects where status != 'VALID';
+	OWNER
+	--------------------------------------------------------------------------------
+	OBJECT_TYPE
+	-----------------------
+	OBJECT_NAME
+	--------------------------------------------------------------------------------
+	GVPP_O
+	PACKAGE BODY
+	CONV_DATA
+
+	ls -l /oracle12c/OraHome19c/rdbms/admin | grep "preupgrade.jar"
+	
+	echo $ORACLE_SID
+	ORCL
+	
+	echo $ORACLE_HOME
+	/oracle12c/OraHome1
+	
+	/oracle12c/OraHome19c/jdk/bin/java -version
+	java version "1.8.0_201"
+	Java(TM) SE Runtime Environment (build 1.8.0_201-b09)
+	Java HotSpot(TM) 64-Bit Server VM (build 25.201-b09, mixed mode)
+
+- Run preupgrade.jar tools
+	oracle> 
+	/oracle12c/OraHome19c/jdk/bin/java -jar /oracle12c/OraHome19c/rdbms/admin/preupgrade.jar TERMINAL TEXT
+
+- Perform all recommendation (for before upgrade) done by preupgrade.jar
+	Recompile invalid objects & Execute Pre-upgrade fixing script generated by preupgrade.jar tools
+	oracle> 
+	sqlplus / as sysdba
+	@$ORACLE_HOME/rdbms/admin/utlrp.sql
+	@$ORACLE_HOME/cfgtoollogs/ORCL/preupgrade/preupgrade_fixups.sql
+	
+- Stop listener & database from /oracle12c/OraHome1 and run listener from /oracle12c/OraHome19c
+	oracle> 
+	lsnrctl stop
+	sqlplus / as sysdba 
+	shutdown immediate 
+	
+	cp -f $ORACLE_HOME/network/admin/tnsnames.ora /oracle12c/OraHome19c/network/admin/
+	export ORACLE_BASE=/oracle12c 
+	export ORACLE_HOME=/oracle12c/OraHome19c
+	export LD_LIBRARY_PATH=:$ORACLE_HOME/lib
+	export PERLHOME=$ORACLE_HOME/perl
+	export ORACLE_HOME_LISTNER=$ORACLE_HOME
+	PATH=$(echo :$PATH: | sed -e 's%:/oracle12c/OraHome1/bin:%:%g' -e 's/^://' -e 's/:$//')
+	export PATH=$ORACLE_HOME/bin:/oracle12c/OraHome1/OPatch:/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin
+	
+	lsnrctl start
+	
+Upgrade Tasks:
+- Startup 12c database in upgrade mode from oracle 19c home:
+	oracle> 
+	sqlplus / as sysdba 
+	startup upgrade
+	select name,open_mode,cdb,version,status from v$database,v$instance;
+	NAME	  OPEN_MODE	       CDB VERSION	     STATUS
+	--------- -------------------- --- ----------------- ------------
+	ORCL	  READ WRITE	       NO  19.0.0.0.0	     OPEN MIGRATE
+	
+	
+- Run Database Upgrade Command:
+	oracle> 
+	cd $ORACLE_HOME/rdbms/admin
+	ls -l catctl.pl catupgrd.sql
+	
+	$ORACLE_HOME/perl/bin/perl catctl.pl catupgrd.sql
+	Argument list for [catctl.pl]
+	For Oracle internal use only A = 0
+	Run in                       c = 0
+	Do not run in                C = 0
+	Input Directory              d = 0
+	...
+	
+- Startup Database from Oracle 19c Home:
+	sqlplus / as sysdba 
+	shutdown immediate 
+	startup 
+	
+	select name, open_mode, version, status from v$database,v$instance;
+	
+	col comp_id for a20
+	col comp_name for a45
+	col version for A20
+	col linesize 180
+	select comp_id, comp_name, version, status from dba_registry;
+	
+Post Upgradation Task:
+	oracle>
+	sqlplus / as sysdba 
+	select TZ_VERSION from registry$database;
+	TZ_VERSION
+	----------
+	18
+	
+	col value for a20
+	col property_name for a50
+	set linesize 150
+	SELECT PROPERTY_NAME, SUBSTR(property_value, 1, 30) value FROM DATABASE_PROPERTIES WHERE PROPERTY_NAME LIKE 'DST_%';
+	PROPERTY_NAME                                      VALUE
+	-------------------------------------------------- --------------------
+	DST_PRIMARY_TT_VERSION                             18
+	DST_SECONDARY_TT_VERSION                           0
+	DST_UPGRADE_STATE                                  NONE
+	
+	shutdown immediate;
+	startup upgrade;
+	set serveroutput on
+	declare
+	  v_tz_version pls_integer;
+	begin
+	  v_tz_version := dbms_dst.get_latest_timezone_version;
+	  dbms_output.put_line('v_tz_version=' || v_tz_version);
+	  dbms_dst.begin_upgrade(v_tz_version);
+	end;
+	/
+	
+	SELECT PROPERTY_NAME, SUBSTR(property_value, 1, 30) value FROM DATABASE_PROPERTIES WHERE PROPERTY_NAME LIKE 'DST_%' ORDER BY PROPERTY_NAME; 
+	PROPERTY_NAME                                      VALUE
+	-------------------------------------------------- --------------------
+	DST_PRIMARY_TT_VERSION                             32
+	DST_SECONDARY_TT_VERSION                           18
+	DST_UPGRADE_STATE                                  UPGRADE
+ 
+	shutdown immediate;
+	startup;
+	set serveroutput on
+	declare
+      v_failures   pls_integer;
+    begin
+      dbms_dst.upgrade_database(v_failures);
+      dbms_output.put_line('dbms_dst.upgrade_database : v_failures=' || v_failures);
+      dbms_dst.end_upgrade(v_failures);
+      dbms_output.put_line('dbms_dst.end_upgrade : v_failures=' || v_failures);
+    end;
+    /
+	
+	SELECT PROPERTY_NAME, SUBSTR(property_value, 1, 30) value FROM DATABASE_PROPERTIES WHERE PROPERTY_NAME LIKE 'DST_%' ORDER BY PROPERTY_NAME; 
+	PROPERTY_NAME					   VALUE
+	-------------------------------------------------- --------------------
+	DST_PRIMARY_TT_VERSION				   32
+	DST_SECONDARY_TT_VERSION			   0
+	DST_UPGRADE_STATE				   NONE
+	
+	@$ORACLE_HOME/rdbms/admin/utldirsymlink.sql
+	
+	execute dbms_stats.gather_dictionary_stats;
+	
+	execute dbms_stats.gather_fixed_objects_stats;
+	
+	@/oracle12c/OraHome1/cfgtoollogs/ORCL/preupgrade/postupgrade_fixups.sql
+	
+	select count(*) from dba_objects where status='INVALID';
+	
+	@$ORACLE_HOME/rdbms/admin/utlrp.sql
+	
+	select count(*) from dba_objects where status='INVALID';
+	
+	alter system set compatible = '19.0.0' scope=spfile;
+	
+	shutdown immediate;
+	
+	startup;
+	
+	show parameter compatible
+	
+	@$ORACLE_HOME/rdbms/admin/utlusts.sql TEXT
+	
+	col comp_name for a45
+	set linesize 200
+	select comp_id,comp_name,version,status from dba_registry;
+	
+	root>
+	sed -i 's%OraHome1%OraHome19c%g' /etc/oratab
+	sed -i's%OraHome1%OraHome19c%g' /home/oracle/.profile
+	source ~/.profile 
+	
+	
+	
+alter system set compatible = '12.1.0.2.0' scope=spfile; 12.1.0.2.0
+	
+
+
+
+
+
+#Temporary
+export ORACLE_HOME=/oracle12c/OraHome19c
+export ORACLE_BASE=/oracle12c 
+export LD_LIBRARY_PATH=:$ORACLE_HOME/lib
+export PERLHOME=$ORACLE_HOME/perl
+export ORACLE_HOME_LISTNER=$ORACLE_HOME
+PATH=$(echo :$PATH: | sed -e 's%:/oracle12c/OraHome1/bin:%:%g' -e 's/^://' -e 's/:$//')
+export PATH=$ORACLE_HOME/bin:/oracle12c/OraHome1/OPatch:/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin
+
+
+export ORACLE_HOME=/oracle12c/OraHome1 
+export ORACLE_BASE=/oracle12c 
+export LD_LIBRARY_PATH=:$ORACLE_HOME/lib
+export PERLHOME=$ORACLE_HOME/perl
+export ORACLE_HOME_LISTNER=$ORACLE_HOME
+PATH=$(echo :$PATH: | sed -e 's%:/oracle12c/OraHome1/bin:%:%g' -e 's/^://' -e 's/:$//')
+export PATH=$ORACLE_HOME/bin:/oracle12c/OraHome1/OPatch:/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin
+
+
