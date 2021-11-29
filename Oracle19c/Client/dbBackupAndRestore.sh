@@ -47,7 +47,7 @@
 # -------- ------------- -----------------------------------------------------
 # 20150918 Andre Ouellet ACQ-13824 Script creation backup only
 # 20151029 Andre Ouellet ACQ-13826 Add restore capability and refactor
-# 20211123 GINO          ACQ-2XXXX Oracle 19c Client upgrade
+# 20211123 GINO          ACQ-21775 Oracle 19c Client upgrade
 #
 ###########################################################################
 #
@@ -122,46 +122,23 @@ readonly SCRIPT_NAME=$(basename $0)
 ################################################################################
 # Function: oracleValidation
 #
-# Verify the version of the oracle database version
+# Verify the version of the oracle database server 
+# - If the oracle server is 12c: set the oracle client version to 11g.
+# - If the oracle server is 19c: do nothing.
 #
 # No parameters.
 ################################################################################
 function _changeC3Profile(){
-  local c3Base=/home/c3
-  local c3Oracle=${VERSION_ROOT}/env/oracle
-  local oracleVersionChange=$1
-  local workingDir=$(pwd)
-  local checkC3Profile=$(cat ${c3Base}/.profile | grep ora11g)
-  local checkOraProfile=$(cat ${c3Oracle}/Oracle.conf | grep ora11g)
-  
-  if [ "$oracleVersionChange" == "1" ]
-  then 
-    if [ "$checkC3Profile" == "" ]
-    then 
-      sed -i 's%OraHome1%OraHome1/\ora11g%g' ${c3Base}/.profile 2>&1
-    fi
-    
-    if [ "$checkOraProfile" == "" ]
-    then 
-      sed -i 's%ORACLE_HOME\/bin%ORACLE_HOME\/ora11g\/bin%g' ${c3Oracle}/Oracle.conf 2>&1
-    fi
-  elif [ "$oracleVersionChange" == "2" ]
-  then
-    if [ "$checkC3Profile" != "" ]
-    then 
-      sed -i 's%OraHome1/\ora11g%OraHome1%g' ${c3Base}/.profile 2>&1
-    fi
-    
-    if [ "$checkOraProfile" != "" ]
-    then 
-      sed -i 's%ORACLE_HOME\/ora11g\/bin%ORACLE_HOME\/bin%g' ${c3Oracle}/Oracle.conf 2>&1
-    fi
-  fi
-
-  cd ${c3Base}
-  source .profile
-  cd ${workingDir}
-
+  # Temporarily remove the old $ORACLE_HOME/bin from the PATH environment of c3 user.
+  PATH=$(echo :$PATH: | sed -e 's%:/oracle11g/OraHome1/bin:%:%g' -e 's/^://' -e 's/:$//') 
+  # Temporarily set the ORACLE_HOME to link with the /oracle11g/OraHome1/ora11g for using the impdp and expdp version 11
+  export ORACLE_HOME=/oracle11g/OraHome1/ora11g
+  # Temporarily add a new path for the PATH environment which will be flexibly used for backup and restore with oracle database 12c.
+  # It does not affect the current version of the oracle client 19c upgrade.
+  export PATH=$PATH:$ORACLE_HOME/bin
+  # Temporarily set the others variable for oracle client to point to the lib and perl directories
+  export LD_LIBRARY_PATH=$ORACLE_HOME/lib
+  export PERLHOME=$ORACLE_HOME/perl
 }
 function oracleValidation(){
 
@@ -174,7 +151,7 @@ EOF
 
   if [ "$oracleVersion" == "12" ]
   then 
-    _changeC3Profile "1"
+    _changeC3Profile
   fi 
 }
 
@@ -1094,7 +1071,7 @@ if [ ! -z "${CS_PS_ENABLED}" ]; then
   exit 2
 fi
 
-# Validate oracle client version (19c or 11g)
+# Validate oracle server version (19c or 12c)
 oracleValidation
 
 validateEnvVar "ORACLE_HOME"
@@ -1146,8 +1123,6 @@ else
   restoreDatabase
   exitOnError $?
 fi
-# Oracle Client 19c upgrade
-_changeC3Profile "2"
 
 logfileInfo
 
